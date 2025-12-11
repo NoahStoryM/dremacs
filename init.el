@@ -9,5 +9,5 @@
 (defvar user-dremacs-directory "~/.dremacs.d/")
 (info-register-packages (expand-file-name "pkgs" user-dremacs-directory))
 (let ((dremacs-init-file (expand-file-name "init" user-dremacs-directory)))
-  (when (file-exists-p dremacs-init-file)
+  (when (file-exists-p (concat dremacs-init-file ".el"))
     (load dremacs-init-file)))
