@@ -9,6 +9,11 @@
 (defvar info-collection-links (make-hash-table :test 'equal)
   "Mapping from collection name (string) to a list of root paths.")
 
+(defvar info-installed-packages (make-hash-table :test 'equal)
+  "Registry of all discovered packages.
+Key: Package name (string, e.g., \"info\").
+Value: Absolute path to the package root.")
+
 (defvar info-loaded-files (make-hash-table :test 'equal)
   "Registry of loaded libraries to prevent circular or redundant loading.
 Key: The library spec list (e.g., '(info info)).
@@ -33,7 +38,12 @@ with a `:collection' property."
         (let* ((form (read (current-buffer)))
                (var-symbol (eval form))
                (info (symbol-value var-symbol))
-               (collection (plist-get info :collection)))
+               (collection (plist-get info :collection))
+               (dep* (plist-get info :deps)))
+          (dolist (dep dep*)
+            (unless (gethash dep info-installed-packages)
+              (error "Package `%s' requires missing dependency: `%s'"
+                     (file-name-nondirectory pkg-path) dep)))
           (cond
            ((or (eq collection "") (eq collection 'multi))
             (dolist (root (directory-files pkg-path t "^[^.]"))
@@ -47,13 +57,17 @@ with a `:collection' property."
             (error "Invalid collection: %s" collection))))))))
 (defun info-register-packages (pkgs-path)
   "Register all packages located within PKGS-PATH.
-This function adds PKGS-PATH to `info-import-paths' and iterates through
-its immediate subdirectories, attempting to register each as a package
-via `info.el'."
+1. Scans subdirectories to update the `info-installed-packages` registry.
+2. Registers collections and validates dependencies via `info--register-package`."
   (add-to-list 'info-import-paths pkgs-path)
-  (dolist (pkg-path (directory-files pkgs-path t "^[^.]"))
-    (when (file-directory-p pkg-path)
-      (info--register-package pkg-path))))
+  (let ((pkg-path* (directory-files pkgs-path t "^[^.]")))
+    (dolist (pkg-path pkg-path*)
+      (when (file-directory-p pkg-path)
+        (let ((pkg-name (file-name-nondirectory pkg-path)))
+          (puthash pkg-name pkg-path info-installed-packages))))
+    (dolist (pkg-path pkg-path*)
+      (when (file-directory-p pkg-path)
+        (info--register-package pkg-path)))))
 
 (defun info--library-spec->path (lib-spec)
   "Resolve LIB-SPEC (e.g., '(info info)) to an absolute file path.
