@@ -57,8 +57,8 @@ with a `:collection' property."
             (error "Invalid collection: %s" collection))))))))
 (defun info-register-packages (pkgs-path)
   "Register all packages located within PKGS-PATH.
-1. Scans subdirectories to update the `info-installed-packages` registry.
-2. Registers collections and validates dependencies via `info--register-package`."
+1. Scans subdirectories to update the `info-installed-packages' registry.
+2. Registers collections and validates dependencies via `info--register-package'."
   (add-to-list 'info-import-paths pkgs-path)
   (let ((pkg-path* (directory-files pkgs-path t "^[^.]")))
     (dolist (pkg-path pkg-path*)
