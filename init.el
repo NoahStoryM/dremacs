@@ -24,13 +24,14 @@
    (concat ";;; init.el --- User initialization file -*- lexical-binding: t -*-\n\n"
            "(meta-import (private))\n"))
   (dremacs--scaffold-file
-   (file-name-concat private-path "meta.el")
+   (file-name-concat private-path "info.el")
    (concat ";;; meta.el --- Private package metadata -*- lexical-binding: t -*-\n\n"
-           "(defmeta private-pkg-meta\n"
+           "(definfo private-pkg-info\n"
            "  (list :collection \"private\"\n"
            "        :pkg-desc \"User private package\"\n"
-           "        :deps '(\"meta\")))\n\n"
-           "(meta-export (private meta))\n"))
+           "        :deps '(\"meta\"))\n"
+           "  \"Metadata for the `private' collection system.\")\n"
+           "(meta-export (private info))\n"))
   (dremacs--scaffold-file
    (file-name-concat private-path "main.el")
    (concat ";;; main.el --- Private package entry -*- lexical-binding: t -*-\n\n"

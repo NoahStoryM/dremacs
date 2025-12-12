@@ -29,13 +29,13 @@ Value: Absolute path to the package directory.")
 (defun meta-install-package (package-name package-path)
   "Read metadata from `meta.el' and register collections.
 Validates dependencies against `meta-installed-packages'."
-  (setq meta--cache:meta nil)
-  (load (expand-file-name "meta" package-path) nil t)
-  (unless meta--cache:meta
-    (error "Package `%s' did not define metadata via `defmeta'" package-name))
-  (let ((collection (plist-get meta--cache:meta :collection))
-        (dep* (plist-get meta--cache:meta :deps)))
-    (setq meta--cache:meta nil)
+  (setq meta--cache:info nil)
+  (load (expand-file-name "info" package-path) nil t)
+  (unless meta--cache:info
+    (error "Package `%s' did not define metadata via `definfo'" package-name))
+  (let ((collection (plist-get meta--cache:info :collection))
+        (dep* (plist-get meta--cache:info :deps)))
+    (setq meta--cache:info nil)
     (dolist (dep dep*)
       (unless (gethash dep meta-installed-packages)
         (error "Package `%s' requires missing dependency: `%s'"
@@ -73,15 +73,15 @@ Value: Module name (string).")
     (puthash file-path feature meta-installed-modules)
     (require feature file-path)))
 
-(defvar meta--cache:meta nil
+(defvar meta--cache:info nil
   "Temporary storage for the most recently loaded package metadata.
-This variable is updated by the `defmeta' macro and consumed by
+This variable is updated by the `definfo' macro and consumed by
 `meta-install-package'. It acts as a bridge between the loaded file
 and the package manager.")
-(defmacro defmeta (symbol value docstring)
+(defmacro definfo (symbol value &optional docstring)
   "Define a package metadata variable and register it for installation."
   `(progn (defvar ,symbol ,value ,docstring)
-          (setq meta--cache:meta ,symbol)))
+          (setq meta--cache:info ,symbol)))
 
 (defun meta-library-spec->file-path (library-spec)
   "Resolve a library spec (e.g. '(meta main)) to an absolute path."
