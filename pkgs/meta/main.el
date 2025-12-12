@@ -67,11 +67,11 @@ Value: List of absolute paths (shadowing supported).")
   "Registry of instantiated modules to prevent re-instantiation.
 Key: Absolute file path.
 Value: Module name (string).")
-(defun meta-install-module (module-name file-path)
-  "Instantiate a module (load file) if not already installed."
+(defun meta-install-module (feature file-path)
+  "Instantiate a module (require feature) if not already installed."
   (unless (gethash file-path meta-installed-modules)
-    (puthash file-path module-name meta-installed-modules)
-    (load file-path nil nil)))
+    (puthash file-path feature meta-installed-modules)
+    (require feature file-path)))
 
 (defvar meta--cache:meta nil
   "Temporary storage for the most recently loaded package metadata.
@@ -98,12 +98,15 @@ and the package manager.")
               (when (file-exists-p file-path)
                 (cl-return-from 'return file-path))))))
       (error "Library not found: %s" library-spec))))
+(defun meta-library-spec->feature (library-spec)
+  "Transform a library spec (e.g. '(library meta)) to a feature (e.g. 'library/meta)."
+  (intern (mapconcat #'symbol-name library-spec "/")))
 
 (defun meta-dynamic-import (library-spec)
   "Resolve and install the module specified by LIBRARY-SPEC."
-  (let* ((file-path (meta-library-spec->file-path library-spec))
-         (module-name (file-name-base file-path)))
-    (meta-install-module module-name file-path)))
+  (let ((file-path (meta-library-spec->file-path library-spec))
+        (feature (meta-library-spec->feature library-spec)))
+    (meta-install-module feature file-path)))
 (defmacro meta-import (&rest library-spec*)
   "Import modules.
 Example: (meta-import (meta) (private))"
@@ -111,3 +114,32 @@ Example: (meta-import (meta) (private))"
      ,@(mapcar (lambda (library-spec)
                  `(meta-dynamic-import ',library-spec))
                library-spec*)))
+
+(defun meta-dynamic-auto-import (function library-spec &optional docstring interactive type)
+  "Register native autoloads for FUNCTIONS in LIBRARY-SPEC."
+  (let ((file-path (meta-library-spec->file-path library-spec))
+        (feature (meta-library-spec->feature library-spec)))
+    (autoload function file-path docstring interactive type)))
+
+(defvar meta--pending-provides (make-hash-table :test 'equal)
+  "Registry of features provided by files currently being loaded.
+Key: Absolute file path (string).
+Value: Feature symbol.")
+(defun meta-dynamic-export (library-spec)
+  "Export the current file as LIBRARY-SPEC."
+  (let ((feature (meta-library-spec->feature library-spec)))
+    (provide feature)
+    (when load-file-name
+      (puthash load-file-name feature meta--pending-provides))))
+(defmacro meta-export (library-spec)
+  "Declare the current file's module identity."
+  `(meta-dynamic-export ',library-spec))
+
+(defun meta--on-file-load (file-path)
+  (let ((feature (gethash file-path meta--pending-provides)))
+    (when feature
+      (puthash file-path feature meta-installed-modules)
+      (remhash file-path meta--pending-provides))))
+(add-hook 'after-load-functions #'meta--on-file-load)
+
+(meta-export (meta))
