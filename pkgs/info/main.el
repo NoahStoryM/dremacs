@@ -2,100 +2,112 @@
 
 (require 'cl-lib)
 
-
-(defvar info-import-paths '()
-  "List of root directories where packages are located.")
-
-(defvar info-collection-links (make-hash-table :test 'equal)
-  "Mapping from collection name (string) to a list of root paths.")
+(defvar info-installed-scopes (make-hash-table :test 'equal)
+  "Registry of installed scopes.
+Key: Scope name (e.g., \"system\", \"user\").
+Value: Absolute path to the scope directory.")
+(defun info-install-scope (scope-name scope-path)
+  "Install a scope by registering all valid packages within it.
+This runs in two passes:
+1. Discovery: Map all package names to paths in `info-installed-packages'.
+2. Installation: Parse `info.el' and register collections via `info-install-package'."
+  (puthash scope-name scope-path info-installed-scopes)
+  (let ((package-path* (directory-files scope-path t "^[^.]")))
+    (dolist (package-path package-path*)
+      (when (file-directory-p package-path)
+        (let ((package-name (file-name-nondirectory package-path)))
+          (puthash package-name package-path info-installed-packages))))
+    (dolist (package-path package-path*)
+      (when (file-directory-p package-path)
+        (let ((package-name (file-name-nondirectory package-path)))
+          (info-install-package package-name package-path))))))
 
 (defvar info-installed-packages (make-hash-table :test 'equal)
-  "Registry of all discovered packages.
-Key: Package name (string, e.g., \"info\").
-Value: Absolute path to the package root.")
+  "Registry of all installed packages across all scopes.
+Key: Package name (string).
+Value: Absolute path to the package directory.")
+(defun info-install-package (package-name package-path)
+  "Read metadata from `info.el' and register collections.
+Validates dependencies against `info-installed-packages'."
+  (setq info--cache:info nil)
+  (load (expand-file-name "info" package-path) nil t)
+  (unless info--cache:info
+    (error "Package `%s' did not define metadata via `definfo'" package-name))
+  (let ((collection (plist-get info--cache:info :collection))
+        (dep* (plist-get info--cache:info :deps)))
+    (setq info--cache:info nil)
+    (dolist (dep dep*)
+      (unless (gethash dep info-installed-packages)
+        (error "Package `%s' requires missing dependency: `%s'"
+               (file-name-nondirectory package-path) dep)))
+    (cond
+     ((or (not collection) (eq collection 'use-pkg-name))
+      (info-install-collection package-name package-path))
+     ((or (eq collection "") (eq collection 'multi))
+      (dolist (collection-path (directory-files package-path t "^[^.]"))
+        (when (file-directory-p collection-path)
+          (let ((collection-name (file-name-nondirectory collection-path)))
+            (info-install-collection collection-name collection-path)))))
+     ((stringp collection)
+      (info-install-collection collection package-path))
+     (t
+      (error "Invalid collection: %s" collection)))))
 
-(defvar info-loaded-files (make-hash-table :test 'equal)
-  "Registry of loaded libraries to prevent circular or redundant loading.
-Key: The library spec list (e.g., '(info info)).
-Value: The absolute path of the loaded file. (e.d., \"~/.emacs.d/pkgs/info/info.el\")")
+(defvar info-installed-collections (make-hash-table :test 'equal)
+  "Registry of collection roots.
+Key: Collection name (string).
+Value: List of absolute paths (shadowing supported).")
+(defun info-install-collection (collection-name collection-path)
+  "Register a root path for a collection."
+  (let ((collection-path* (gethash collection-name info-installed-collections)))
+    (puthash collection-name (cons collection-path collection-path*) info-installed-collections)
+    (add-to-list 'load-path collection-path)))
 
-(defun info--link-collection (name root)
-  "Register ROOT as a path for collection NAME.
-If the collection is already registered, ROOT is prepended to the list,
-allowing for shadowing behavior."
-  (let ((root* (gethash name info-collection-links)))
-    (puthash name (cons root root*) info-collection-links)))
+(defvar info-installed-modules (make-hash-table :test 'equal)
+  "Registry of instantiated modules to prevent re-instantiation.
+Key: Absolute file path.
+Value: Module name (string).")
+(defun info-install-module (module-name file-path)
+  "Instantiate a module (load file) if not already installed."
+  (unless (gethash file-path info-installed-modules)
+    (puthash file-path module-name info-installed-modules)
+    (load file-path nil nil)))
 
-(defun info--register-package (pkg-path)
-  "Read `info.el' from PKG-PATH and register its collections.
-This function expects `info.el' to define a variable containing a plist
-with a `:collection' property."
-  (let ((info-path (expand-file-name "info.el" pkg-path)))
-    (when (file-exists-p info-path)
-      (with-temp-buffer
-        (insert-file-contents info-path)
-        (goto-char (point-min))
-        (let* ((form (read (current-buffer)))
-               (var-symbol (eval form))
-               (info (symbol-value var-symbol))
-               (collection (plist-get info :collection))
-               (dep* (plist-get info :deps)))
-          (dolist (dep dep*)
-            (unless (gethash dep info-installed-packages)
-              (error "Package `%s' requires missing dependency: `%s'"
-                     (file-name-nondirectory pkg-path) dep)))
-          (cond
-           ((or (not collection) (eq collection 'use-pkg-name))
-            (info--link-collection (file-name-nondirectory pkg-path) pkg-path))
-           ((or (eq collection "") (eq collection 'multi))
-            (dolist (root (directory-files pkg-path t "^[^.]"))
-              (when (file-directory-p root)
-                (info--link-collection (file-name-nondirectory root) root))))
-           ((stringp collection)
-            (info--link-collection collection pkg-path))
-           (t
-            (error "Invalid collection: %s" collection))))))))
-(defun info-register-packages (pkgs-path)
-  "Register all packages located within PKGS-PATH.
-1. Scans subdirectories to update the `info-installed-packages' registry.
-2. Registers collections and validates dependencies via `info--register-package'."
-  (add-to-list 'info-import-paths pkgs-path)
-  (let ((pkg-path* (directory-files pkgs-path t "^[^.]")))
-    (dolist (pkg-path pkg-path*)
-      (when (file-directory-p pkg-path)
-        (let ((pkg-name (file-name-nondirectory pkg-path)))
-          (puthash pkg-name pkg-path info-installed-packages))))
-    (dolist (pkg-path pkg-path*)
-      (when (file-directory-p pkg-path)
-        (info--register-package pkg-path)))))
+(defvar info--cache:info nil
+  "Temporary storage for the most recently loaded package metadata.
+This variable is updated by the `definfo' macro and consumed by
+`info-install-package'. It acts as a bridge between the loaded file
+and the package manager.")
+(defmacro definfo (symbol value docstring)
+  "Define a package metadata variable and register it for installation."
+  `(progn (defvar ,symbol ,value ,docstring)
+          (setq info--cache:info ,symbol)))
 
-(defun info--library-spec->path (lib-spec)
-  "Resolve LIB-SPEC (e.g., '(info info)) to an absolute file path.
-Search order: .elc -> .el -> /main.elc -> /main.el"
-  (let* ((name (symbol-name (car lib-spec)))
-         (rel-path (mapconcat #'symbol-name (cdr lib-spec) "/"))
-         (root* (gethash name info-collection-links)))
-    (unless root*
-      (error "Collection not registered: %s" name))
+(defun info-library-spec->file-path (library-spec)
+  "Resolve a library spec (e.g. '(info main)) to an absolute path."
+  (let* ((collection-name (symbol-name (car library-spec)))
+         (module-path (mapconcat #'symbol-name (cdr library-spec) "/"))
+         (collection-path* (gethash collection-name info-installed-collections)))
+    (unless collection-path*
+      (error "Collection not registered: %s" collection-name))
     (cl-block 'return
-      (dolist (root root*)
-        (let ((file-name (expand-file-name rel-path root)))
+      (dolist (collection-path collection-path*)
+        (let ((file-name (expand-file-name module-path collection-path)))
           (dolist (file-type '(".elc" ".el" "/main.elc" "/main.el"))
             (let ((file-path (concat file-name file-type)))
               (when (file-exists-p file-path)
                 (cl-return-from 'return file-path))))))
-      (error "Library not found: %s" lib-spec))))
+      (error "Library not found: %s" library-spec))))
 
-(defun info-dynamic-import (lib-spec)
-  "Load the module identified by LIB-SPEC if it hasn't been loaded yet."
-  (let ((path (info--library-spec->path lib-spec)))
-    (unless (gethash path info-loaded-files)
-      (puthash path lib-spec info-loaded-files)
-      (load path nil nil))))
-(defmacro info-import (&rest lib-spec*)
-  "Import modules using Racket-style syntax.
-Example: (info-import (info) (info info))"
+(defun info-dynamic-import (library-spec)
+  "Resolve and install the module specified by LIBRARY-SPEC."
+  (let* ((file-path (info-library-spec->file-path library-spec))
+         (module-name (file-name-base file-path)))
+    (info-install-module module-name file-path)))
+(defmacro info-import (&rest library-spec*)
+  "Import modules.
+Example: (info-import (info) (private))"
   `(progn
-     ,@(mapcar (lambda (lib-spec)
-                 `(info-dynamic-import ',lib-spec))
-               lib-spec*)))
+     ,@(mapcar (lambda (library-spec)
+                 `(info-dynamic-import ',library-spec))
+               library-spec*)))

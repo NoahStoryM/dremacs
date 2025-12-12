@@ -1,6 +1,6 @@
 ;;; info.el --- Info package metadata -*- lexical-binding: t -*-
 
-(defvar info-pkg-info
+(definfo info-pkg-info
   (list :license 'MIT
         :collection "info"
         :version "0.1"

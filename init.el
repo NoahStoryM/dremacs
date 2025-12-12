@@ -1,11 +1,10 @@
 ;;; init.el --- Initialization File -*- lexical-binding: t -*-
 
-(let ((pkgs-path (expand-file-name "pkgs" user-emacs-directory)))
-  (load (concat pkgs-path "/info/main"))
-  (info-register-packages pkgs-path)
-  (let ((info-main-path (info--library-spec->path '(info))))
-    (puthash info-main-path '(info) info-loaded-files)))
-
+(let ((scope-path (expand-file-name "pkgs" user-emacs-directory)))
+  (load (concat scope-path "/info/main"))
+  (info-install-scope "system" scope-path)
+  (let ((info-main-path (info-library-spec->file-path '(info))))
+    (puthash info-main-path "main" info-installed-modules)))
 
 (defvar user-dremacs-directory "~/.dremacs.d/")
 (defun dremacs--scaffold-file (path content)
@@ -24,12 +23,13 @@
   (dremacs--scaffold-file
    (concat private-path "/info.el")
    (concat ";;; info.el --- Private package metadata -*- lexical-binding: t -*-\n\n"
-           "(defvar private-pkg-info\n"
+           "(definfo private-pkg-info\n"
            "  (list :collection \"private\"\n"
            "        :pkg-desc \"User private package\"\n"
            "        :deps '(\"info\")))\n"))
   (dremacs--scaffold-file
    (concat private-path "/main.el")
    (concat ";;; main.el --- Private package entry -*- lexical-binding: t -*-\n")))
-(info-register-packages (expand-file-name "pkgs" user-dremacs-directory))
+(let ((scope-path (expand-file-name "pkgs" user-dremacs-directory)))
+  (info-install-scope "user" scope-path))
 (load (expand-file-name "init" user-dremacs-directory))
