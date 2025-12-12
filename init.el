@@ -30,11 +30,11 @@
            "  (list :collection \"private\"\n"
            "        :pkg-desc \"User private package\"\n"
            "        :deps '(\"meta\")))\n\n"
-           "(meta-export (private meta)\n"))
+           "(meta-export (private meta))\n"))
   (dremacs--scaffold-file
    (file-name-concat private-path "main.el")
    (concat ";;; main.el --- Private package entry -*- lexical-binding: t -*-\n\n"
-           "(meta-export (private)\n")))
+           "(meta-export (private))\n")))
 (let ((scope-path (file-name-concat user-dremacs-directory "pkgs")))
   (meta-install-scope "user" scope-path))
 (load (file-name-concat user-dremacs-directory "init"))
