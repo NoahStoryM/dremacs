@@ -45,12 +45,12 @@ with a `:collection' property."
               (error "Package `%s' requires missing dependency: `%s'"
                      (file-name-nondirectory pkg-path) dep)))
           (cond
+           ((or (not collection) (eq collection 'use-pkg-name))
+            (info--link-collection (file-name-nondirectory pkg-path) pkg-path))
            ((or (eq collection "") (eq collection 'multi))
             (dolist (root (directory-files pkg-path t "^[^.]"))
               (when (file-directory-p root)
                 (info--link-collection (file-name-nondirectory root) root))))
-           ((eq collection 'use-pkg-name)
-            (info--link-collection (file-name-nondirectory pkg-path) pkg-path))
            ((stringp collection)
             (info--link-collection collection pkg-path))
            (t
