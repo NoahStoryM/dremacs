@@ -86,18 +86,18 @@ and the package manager.")
 (defun meta-library-spec->file-path (library-spec)
   "Resolve a library spec (e.g. '(meta main)) to an absolute path."
   (let* ((collection-name (symbol-name (car library-spec)))
-         (module-path (mapconcat #'symbol-name (cdr library-spec) "/"))
          (collection-path* (gethash collection-name meta-installed-collections)))
     (unless collection-path*
       (error "Collection not registered: %s" collection-name))
-    (cl-block 'return
-      (dolist (collection-path collection-path*)
-        (let ((file-name (expand-file-name module-path collection-path)))
-          (dolist (file-type '(".elc" ".el" "/main.elc" "/main.el"))
-            (let ((file-path (concat file-name file-type)))
-              (when (file-exists-p file-path)
-                (cl-return-from 'return file-path))))))
-      (error "Library not found: %s" library-spec))))
+    (let* ((rel-path (cdr library-spec))
+           (module-path (if rel-path (apply #'file-name-concat (mapcar #'symbol-name rel-path)) ""))
+           (file-path (locate-file module-path collection-path* load-suffixes)))
+      (or file-path
+          (let* ((module-path (file-name-concat module-path "main"))
+                 (file-path (locate-file module-path collection-path* load-suffixes)))
+            (unless file-path
+              (error "Library not found: %s" library-spec))
+            file-path)))))
 (defun meta-library-spec->feature (library-spec)
   "Transform a library spec (e.g. '(library meta)) to a feature (e.g. 'library/meta)."
   (intern (mapconcat #'symbol-name library-spec "/")))
