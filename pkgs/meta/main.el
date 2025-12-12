@@ -1,7 +1,5 @@
 ;;; main.el --- Racket-style info -*- lexical-binding: t; -*-
 
-(require 'cl-lib)
-
 (defvar meta-installed-scopes (make-hash-table :test 'equal)
   "Registry of installed scopes.
 Key: Scope name (e.g., \"system\", \"user\").
