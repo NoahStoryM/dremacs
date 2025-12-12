@@ -136,6 +136,7 @@ Value: Feature symbol.")
   `(meta-dynamic-export ',library-spec))
 
 (defun meta--on-file-load (file-path)
+  "Hook: Run after file load. Check if it opted-in via meta-provide."
   (let ((feature (gethash file-path meta--pending-provides)))
     (when feature
       (puthash file-path feature meta-installed-modules)
