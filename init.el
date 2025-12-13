@@ -4,8 +4,8 @@
   (error "DrEmacs only works with Emacs 29 and newer"))
 
 (let* ((scope-path (expand-file-name "pkgs" user-emacs-directory))
-       (meta-path (expand-file-name "meta" scope-path))
-       (meta-main-path (expand-file-name "main" meta-path)))
+       (meta-path (file-name-concat scope-path "meta"))
+       (meta-main-path (file-name-concat meta-path "main")))
   (load meta-main-path nil t)
   (meta-install-scope "system" scope-path))
 
