@@ -1,0 +1,64 @@
+#+TITLE: Meta
+#+AUTHOR: Noah Ma
+#+EMAIL: noahstorym@gmail.com
+
+* Table of Contents                                       :TOC_5_gh:noexport:
+- [[#introduction][Introduction]]
+- [[#concepts][Concepts]]
+  - [[#info-files-infoel][Info Files (=info.el=)]]
+  - [[#library-specs][Library Specs]]
+- [[#api-reference][API Reference]]
+  - [[#meta-import-library-spec-][~(meta-import library-spec ...)~]]
+  - [[#meta-export-library-spec][~(meta-export library-spec)~]]
+  - [[#meta-install-scope-name-path][~(meta-install-scope name path)~]]
+
+* Introduction
+The core infrastructure of the configuration system. This package implements the
+module loader, path resolution, and metadata parsing.
+
+* Concepts
+** Info Files (=info.el=)
+Every package must contain an =info.el= defining its metadata. This is similar to
+=info.rkt=.
+
+#+BEGIN_SRC emacs-lisp
+(definfo my-pkg-info
+  (list :collection "my-tools"
+        :version "0.1"
+        :deps '("meta"))
+  "Metadata description.")
+#+END_SRC
+
+** Library Specs
+Modules are referenced via S-expressions, not strings.
+
+|------------------+----------------------+---------------|
+| Racket/Meta Spec | Resolves to File     | Elisp Feature |
+|------------------+----------------------+---------------|
+| =(meta)=         | =.../main.el=        | =meta=        |
+| =(meta info)=    | =.../meta/info.el=   | =meta/info=   |
+| =(util string)=  | =.../util/string.el= | =util/string= |
+|------------------+----------------------+---------------|
+
+* API Reference
+** ~(meta-import library-spec ...)~
+Import one or more modules.
+
+#+BEGIN_SRC emacs-lisp
+(meta-import (meta) (private config))
+#+END_SRC
+
+** ~(meta-export library-spec)~
+Declare the current file as a specific module. This wraps ~provide~ and handles
+path registration.
+
+#+BEGIN_SRC emacs-lisp
+;; In pkgs/private/main.el
+(meta-export (private))
+#+END_SRC
+
+** ~(meta-install-scope name path)~
+Registers a directory containing packages. The discovery process is:
+1. Scan directory for packages.
+2. Parse =info.el= for dependencies.
+3. Register the package's collection path.

@@ -1,0 +1,17 @@
+* Private Collection
+This is an example package representing your private user settings.
+
+** Role
+This package serves as a default place to put configuration that doesn't warrant
+its own separate package yet.
+
+** Usage
+It is automatically imported by your user =init.el=:
+
+#+BEGIN_SRC emacs-lisp
+(meta-import (private))
+#+END_SRC
+
+** File Layout
+- =info.el=: Defines the collection name as "private".
+- =main.el=: The entry point code.

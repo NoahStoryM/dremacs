@@ -1,0 +1,31 @@
+* User Configuration (.dremacs.d)
+
+This is your private configuration directory. It was generated automatically by
+*DrEmacs*.
+
+** Structure
+
+- =init.el=: Your personal entry point.
+- =pkgs/=: The "user" scope. Place your custom packages here.
+
+** Adding a New Package
+
+To add a new configuration package (e.g., ~my-python~):
+
+1. Create the directory: =pkgs/my-python/=.
+2. Create =pkgs/my-python/info.el=:
+   #+BEGIN_SRC emacs-lisp
+   (definfo my-python-pkg-info
+     (list :collection "python"
+           :deps '("meta"))
+     "Python settings.")
+   #+END_SRC
+3. Create =pkgs/my-python/main.el=:
+   #+BEGIN_SRC emacs-lisp
+   ;; Your config code here
+   (meta-export (python))
+   #+END_SRC
+4. Import it in your =init.el=:
+   #+BEGIN_SRC emacs-lisp
+   (meta-import (python))
+   #+END_SRC

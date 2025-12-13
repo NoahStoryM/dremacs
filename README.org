@@ -6,48 +6,33 @@
 - [[#introduction][Introduction]]
 - [[#philosophy][Philosophy]]
 - [[#directory-structure][Directory Structure]]
-- [[#info-system][Info System]]
-  - [[#packages-and-collections][Packages and Collections]]
-  - [[#metadata-infoel][Metadata (=info.el=)]]
-  - [[#dependency-management][Dependency Management]]
+- [[#bootstrap-process][Bootstrap Process]]
 - [[#usage][Usage]]
-  - [[#bootstrapping][Bootstrapping]]
-  - [[#importing-modules][Importing Modules]]
 
 * Introduction
-~DrEmacs~ is a modular Emacs configuration framework designed for Racket
-programmers. It abandons the traditional, flat Emacs Lisp ~require~ and ~provide~
-system in favor of a structured, *Collection* and *Package* based module system
-inspired by Racket's =info.rkt=.
+A structured, Racket-inspired configuration framework for GNU Emacs.
 
-It separates the core system (=~/.emacs.d=) from user configuration (=~/.dremacs.d=),
-providing a clean, hygienic, and functional environment for hacking Emacs.
-
-You can install DrEmacs using:
-
-#+begin_src sh
-git clone https://github.com/NoahStoryM/dremacs ~/.emacs.d
-#+end_src
+This repository implements a lightweight package management and module system
+called *Meta*, designed to bring the explicitness of Racket's collection system
+to Emacs Lisp.
 
 * Philosophy
-- *Racket-style Modules*
-  Modules are loaded by their collection path (e.g., ~(info-import (private))~)
-  rather than global feature symbols.
-- *Explicit Metadata*
-  Every package must define an =info.el= describing its metadata.
-- *Discovery & Validation*
-  The system scans packages to discover collections and validates dependencies
-  before loading, ensuring system integrity.
+Standard Emacs configuration often suffers from a flat namespace and implicit
+dependencies (the global ~load-path~ hell). This framework introduces:
+
+- **Scopes**: Clearly separated installation roots (e.g., ~system~ vs ~user~).
+- **Collections**: Logical grouping of modules (similar to Racket collections).
+- **Explicit Metadata**: Every package must describe itself via =info.el=.
+- **Structured Imports**: Use ~(meta-import (collection module))~ instead of ~(require 'collection/module)~.
+- **Structured Exports**: Use ~(meta-export (collection module))~ instead of ~(provide 'collection/module)~.
 
 * Directory Structure
-The system is split into two main directories:
-
 #+begin_src text
 ~/
 ├── .emacs.d/               # System Core (DrEmacs)
 │   ├── init.el             # Bootstrapper
 │   └── pkgs/               # System Packages
-│       └── info/           # The Core Package Manager
+│       └── meta/           # The Core Package Manager
 │           ├── info.el
 │           └── main.el
 └── .dremacs.d/             # User Configuration
@@ -58,55 +43,18 @@ The system is split into two main directories:
             └── main.el
 #+end_src
 
-* Info System
-
-** Packages and Collections
-- A *Package* is a directory containing an =info.el= file.
-- A *Collection* is a logical namespace.
-
-** Metadata (=info.el=)
-Every package must contain an =info.el= file. It should define its metadata as
-a property list.
-
-#+begin_src emacs-lisp
-;;; info.el --- Package metadata -*- lexical-binding: t -*-
-
-(defvar my-pkg-info
-  (list :collection "my-collection"  ; The collection namespace
-        :deps '("info"))             ; List of dependent package NAMES
-  "Metadata for the package.")
-#+end_src
-
-** Dependency Management
-When DrEmacs starts, it performs a two-pass scan:
-1. *Discovery*
-   It scans =~/.emacs.d/pkgs= and =~/.dremacs.d/pkgs= to build a registry of
-   available packages.
-2. *Validation*:
-   It registers each package. If a package declares a ~:deps~ that was not found
-   in the registry, it raises an error and prevents that package from loading.
+* Bootstrap Process
+1. On startup, =init.el= bootstraps the ~meta~ collection from the system scope.
+2. It looks for a user configuration directory at ~user-dremacs-directory~ (default: =~/.dremacs.d=).
+3. If missing, it scaffolds it using the template in =.example=.
+4. Finally, it loads the user's private =init.el=.
 
 * Usage
+Just clone this repository to your home directory:
 
-** Bootstrapping
-Simply clone this repository to =~/.emacs.d=.
+#+BEGIN_SRC sh
+git clone https://github.com/NoahStoryM/dremacs ~/.emacs.d
+emacs
+#+END_SRC
 
-On the first launch, DrEmacs will detect missing user configuration and
-*scaffold* a fresh =~/.dremacs.d= directory for you, complete with =init.el= and
-a =private= package.
-
-** Importing Modules
-Use the ~info-import~ macro to load modules, which replaces ~require~.
-
-#+begin_src emacs-lisp
-;; Syntax: (info-import (COLLECTION FILE) ...)
-
-;; Import main.el from the 'info' collection
-(info-import (info main))
-
-;; Import config.el from the 'private' collection
-(info-import (private config))
-#+end_src
-
-- ~(info)~ resolves to =.../pkgs/info/main.el=.
-- The system handles compiled files (=.elc=) preference automatically.
+The first launch will initialize your private configuration in =~/.dremacs.d=.
