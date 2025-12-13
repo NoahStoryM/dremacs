@@ -1,4 +1,4 @@
-;;; meta.el --- Meta package metadata -*- lexical-binding: t -*-
+;;; info.el --- Meta package metadata -*- lexical-binding: t -*-
 
 (definfo meta-pkg-info
   (list :license 'MIT
@@ -6,5 +6,3 @@
         :version "0.1"
         :pkg-desc "The core package manager and metadata system")
   "Metadata for the `meta' collection system.")
-
-(meta-export (meta info))
