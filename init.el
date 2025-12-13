@@ -7,5 +7,5 @@
   (meta-install-scope "system" scope-path))
 
 (let ((init-path (locate-file "init" (list user-dremacs-directory) load-suffixes)))
-  (when (file-exists-p init-path)
-    (load init-path nil t)))
+  (when init-path
+    (load init-path t t)))

@@ -30,12 +30,15 @@ dependencies (the global ~load-path~ hell). This framework introduces:
 #+begin_src text
 ~/
 ├── .emacs.d/               # System Core (DrEmacs)
-│   ├── init.el             # Bootstrapper
+│   ├── early-init.el       # System Bootstrap (Env & Paths)
+│   ├── init.el             # System Loader (Meta System)
 │   └── pkgs/               # System Packages
 │       └── meta/           # The Core Package Manager
 │           ├── info.el
 │           └── main.el
+│
 └── .dremacs.d/             # User Configuration
+    ├── early-init.el       # User Bootstrap (GUI & Perf)
     ├── init.el             # User Entry Point
     └── pkgs/               # User Packages
         └── private/        # Your personal configuration
@@ -44,10 +47,18 @@ dependencies (the global ~load-path~ hell). This framework introduces:
 #+end_src
 
 * Bootstrap Process
-1. On startup, =init.el= bootstraps the ~meta~ collection from the system scope.
-2. It looks for a user configuration directory at ~user-dremacs-directory~ (default: =~/.dremacs.d=).
-3. If missing, it scaffolds it using the template in =.example=.
-4. Finally, it loads the user's private =init.el=.
+1. **System Bootstrap** (=.emacs.d/early-init.el=):
+   - Calculates the user configuration path (~user-dremacs-directory~).
+   - Scaffolds =~/.dremacs.d= from templates if missing.
+   - Loads the user's =~/.dremacs.d/early-init.el= file (for GUI/GC optimizations).
+
+2. **System Loading** (=.emacs.d/init.el=):
+   - Bootstraps the ~meta~ collection from the system scope.
+   - Installs the "system" scope.
+
+3. **User Loading**:
+   - Loads the user's =~/.dremacs.d/init.el=.
+   - The user then imports their private collections via ~(meta-import ...)~.
 
 * Usage
 Just clone this repository to your home directory:
