@@ -1,4 +1,4 @@
-;;; init.el --- User initialization file -*- lexical-binding: t -*-
+;;; init.el --- User Initialization File -*- lexical-binding: t -*-
 
 (let ((scope-path (file-name-concat user-dremacs-directory "pkgs")))
   (meta-install-scope "user" scope-path))
