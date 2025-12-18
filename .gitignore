@@ -1,6 +1,9 @@
 # Cache
 .cache/*
 
+# Elpa
+elpa/*
+
 # Compiled
 *.elc
 
