@@ -1,14 +1,23 @@
 # Cache
-.cache/*
+.cache/
 
 # Elpa
-elpa/*
+elpa/
 
 # Eshell
-eshell/*
+eshell/
 
 # PYIM
-pyim/*
+pyim/
+
+# Recentf
+recentf
+
+# tramp
+tramp
+
+# transient
+transient
 
 # Compiled
 *.elc
