@@ -28,7 +28,7 @@ Value: Absolute path to the package directory.")
   "Read metadata from `meta.el' and register collections.
 Validates dependencies against `meta-installed-packages'."
   (setq meta--cache:info nil)
-  (load (expand-file-name "info" package-path) nil t)
+  (load (expand-file-name "metadata" package-path) nil t)
   (unless meta--cache:info
     (error "Package `%s' did not define metadata via `definfo'" package-name))
   (let ((collection (plist-get meta--cache:info :collection))
