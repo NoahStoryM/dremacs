@@ -1,5 +1,6 @@
-# Cache
-.cache/
+# Local
+.local/
+elpa/
 
 # Compiled
 *.elc
