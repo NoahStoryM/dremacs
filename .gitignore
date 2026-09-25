@@ -19,3 +19,7 @@ dist/
 
 # Undo-tree save-files
 *.~undo-tree
+
+# Emacs state that may still land in the system directory
+eln-cache/
+auto-save-list/
