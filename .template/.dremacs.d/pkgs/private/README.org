@@ -13,5 +13,5 @@ It is automatically imported by your user =init.el=:
 #+END_SRC
 
 ** File Layout
-- =info.el=: Defines the collection name as "private".
+- =metadata.el=: Defines the collection name as "private".
 - =main.el=: The entry point code.

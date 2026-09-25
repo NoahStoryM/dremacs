@@ -23,9 +23,13 @@ dependencies (the global ~load-path~ hell). This framework introduces:
 
 - **Scopes**: Clearly separated installation roots (e.g., ~system~ vs ~user~).
 - **Collections**: Logical grouping of modules (similar to Racket collections).
-- **Explicit Metadata**: Every package must describe itself via =info.el=.
-- **Structured Imports**: Use ~(meta-import (collection module))~ instead of ~(require 'collection/module)~.
-- **Structured Exports**: Use ~(meta-export (collection module))~ instead of ~(provide 'collection/module)~.
+- **Explicit Metadata**: Every package must describe itself via =metadata.el=, a
+  plain plist that is read as data, never evaluated.
+- **Structured Imports**: Use ~(meta-import (collection module))~ instead of
+  ~(require 'collection/module)~.  A module's identity comes from its path, so
+  no ~provide~ is needed; cyclic imports are reported as errors.
+- **No load-path**: Collection roots are tracked by Meta itself and never added
+  to ~load-path~.
 
 * Directory Structure
 #+begin_src text
@@ -35,7 +39,7 @@ dependencies (the global ~load-path~ hell). This framework introduces:
 │   ├── init.el             # System Loader (Meta System)
 │   └── pkgs/               # System Packages
 │       └── meta/           # The Core Package Manager
-│           ├── info.el
+│           ├── metadata.el
 │           └── main.el
 │
 └── .dremacs.d/             # User Configuration
@@ -43,13 +47,16 @@ dependencies (the global ~load-path~ hell). This framework introduces:
     ├── init.el             # User Entry Point
     └── pkgs/               # User Packages
         └── private/        # Your personal configuration
-            ├── info.el
+            ├── metadata.el
             └── main.el
 #+end_src
 
 * Bootstrap Process
 1. **System Bootstrap** (=.emacs.d/early-init.el=):
-   - Calculates the user configuration path (~user-dremacs-directory~).
+   - Records the system root in ~dremacs-directory~.
+   - Calculates the user configuration path (~user-dremacs-directory~), which
+     defaults to =.dremacs.d= next to the system root and can be overridden with
+     the =DREMACSDIR= environment variable.
    - Scaffolds =~/.dremacs.d= from templates if missing.
    - Loads the user's =~/.dremacs.d/early-init.el= file (for GUI/GC optimizations).
 
@@ -69,7 +76,11 @@ git clone https://github.com/NoahStoryM/dremacs ~/.emacs.d
 emacs
 #+END_SRC
 
-The first launch will initialize your private configuration in =~/.dremacs.d=.
+The first launch will initialize your private configuration in =~/.dremacs.d=
+(or =$DREMACSDIR=, if set).
+
+The user configuration may freely change ~user-emacs-directory~ in its
+=early-init.el=: the system root is captured before that file runs.
 
 * License
 :PROPERTIES:

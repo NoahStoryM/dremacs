@@ -5,7 +5,7 @@
 * Table of Contents                                       :TOC_5_gh:noexport:
 - [[#introduction][Introduction]]
 - [[#concepts][Concepts]]
-  - [[#info-files-infoel][Info Files (=info.el=)]]
+  - [[#metadata-files-metadatael][Metadata Files (=metadata.el=)]]
   - [[#library-specs][Library Specs]]
 - [[#api-reference][API Reference]]
   - [[#meta-import-library-spec-][~(meta-import library-spec ...)~]]
@@ -17,17 +17,22 @@ The core infrastructure of the configuration system. This package implements the
 module loader, path resolution, and metadata parsing.
 
 * Concepts
-** Info Files (=info.el=)
-Every package must contain an =info.el= defining its metadata. This is similar to
-=info.rkt=.
+** Metadata Files (=metadata.el=)
+Every package must contain a =metadata.el= holding a single plist. It plays the
+role of =info.rkt=, but is read as data rather than evaluated.
 
-#+BEGIN_SRC emacs-lisp
-(definfo my-pkg-info
-  (list :collection "my-tools"
-        :version "0.1"
-        :deps '("meta"))
-  "Metadata description.")
+#+BEGIN_SRC lisp-data
+(:collection "my-tools"
+ :version "0.1"
+ :deps ("meta"))
 #+END_SRC
+
+Recognized keys:
+- =:collection= :: a string names the collection; nil or ~use-pkg-name~ uses the
+  package directory name; =""= or ~multi~ makes every subdirectory a collection.
+- =:deps= :: names of packages that must be installed.
+
+The legacy form ~(definfo NAME (list ...) DOC)~ is still accepted.
 
 ** Library Specs
 Modules are referenced via S-expressions, not strings.
@@ -35,30 +40,27 @@ Modules are referenced via S-expressions, not strings.
 |------------------+----------------------+---------------|
 | Racket/Meta Spec | Resolves to File     | Elisp Feature |
 |------------------+----------------------+---------------|
-| =(meta)=         | =.../main.el=        | =meta=        |
-| =(meta info)=    | =.../meta/info.el=   | =meta/info=   |
+| =(meta)=         | =.../meta/main.el=   | =meta=        |
 | =(util string)=  | =.../util/string.el= | =util/string= |
+| =(util str)=     | =.../util/str/main.el= (if =str.el= is absent) | =util/str= |
 |------------------+----------------------+---------------|
 
 * API Reference
 ** ~(meta-import library-spec ...)~
-Import one or more modules.
+Import one or more modules. Each file is loaded at most once; its feature is
+provided only after it loads without error, so a module that failed can be
+imported again once fixed. Cyclic imports signal an error that shows the cycle.
 
 #+BEGIN_SRC emacs-lisp
 (meta-import (meta) (private config))
 #+END_SRC
 
 ** ~(meta-export library-spec)~
-Declare the current file as a specific module. This wraps ~provide~ and handles
-path registration.
-
-#+BEGIN_SRC emacs-lisp
-;; In pkgs/private/main.el
-(meta-export (private))
-#+END_SRC
+Optional. ~meta-import~ already provides the module's feature, so this is only
+needed for files that are loaded by other means (e.g. =meta/main.el= itself).
 
 ** ~(meta-install-scope name path)~
 Registers a directory containing packages. The discovery process is:
-1. Scan directory for packages.
-2. Parse =info.el= for dependencies.
-3. Register the package's collection path.
+1. Scan the directory for packages.
+2. Read each =metadata.el= and check its dependencies.
+3. Register the package's collection roots.
