@@ -1,144 +1,178 @@
-;;; main.el --- Racket-style info -*- lexical-binding: t; -*-
+;;; main.el --- Racket-style collections for Emacs Lisp -*- lexical-binding: t; -*-
+
+;;; Commentary:
+
+;; Scopes contain packages, packages provide collections, collections
+;; contain modules.  A module is identified by a library spec such as
+;; `(private layers default)', which resolves to a file under one of the
+;; roots registered for the `private' collection.
+;;
+;; Unlike `require', resolution never consults `load-path': every root is
+;; tracked explicitly in `meta-installed-collections'.
+
+;;; Code:
+
+(require 'seq)
+
+;;;; Registries
 
 (defvar meta-installed-scopes (make-hash-table :test 'equal)
   "Registry of installed scopes.
-Key: Scope name (e.g., \"system\", \"user\").
-Value: Absolute path to the scope directory.")
-(defun meta-install-scope (scope-name scope-path)
-  "Install a scope by registering all valid packages within it.
-This runs in two passes:
-1. Discovery: Map all package names to paths in `meta-installed-packages'.
-2. Installation: Parse `meta.el' and register collections via `meta-install-package'."
-  (puthash scope-name scope-path meta-installed-scopes)
-  (let ((package-path* (directory-files scope-path t "^[^.]")))
-    (dolist (package-path package-path*)
-      (when (file-directory-p package-path)
-        (let ((package-name (file-name-nondirectory package-path)))
-          (puthash package-name package-path meta-installed-packages))))
-    (dolist (package-path package-path*)
-      (when (file-directory-p package-path)
-        (let ((package-name (file-name-nondirectory package-path)))
-          (meta-install-package package-name package-path))))))
+Key: scope name (e.g. \"system\", \"user\").
+Value: absolute path of the scope directory.")
 
 (defvar meta-installed-packages (make-hash-table :test 'equal)
   "Registry of all installed packages across all scopes.
-Key: Package name (string).
-Value: Absolute path to the package directory.")
-(defun meta-install-package (package-name package-path)
-  "Read metadata from `meta.el' and register collections.
-Validates dependencies against `meta-installed-packages'."
-  (setq meta--cache:info nil)
-  (load (expand-file-name "metadata" package-path) nil t)
-  (unless meta--cache:info
-    (error "Package `%s' did not define metadata via `definfo'" package-name))
-  (let ((collection (plist-get meta--cache:info :collection))
-        (dep* (plist-get meta--cache:info :deps)))
-    (setq meta--cache:info nil)
-    (dolist (dep dep*)
-      (unless (gethash dep meta-installed-packages)
-        (error "Package `%s' requires missing dependency: `%s'"
-               (file-name-nondirectory package-path) dep)))
-    (cond
-     ((or (not collection) (eq collection 'use-pkg-name))
-      (meta-install-collection package-name package-path))
-     ((or (eq collection "") (eq collection 'multi))
-      (dolist (collection-path (directory-files package-path t "^[^.]"))
-        (when (file-directory-p collection-path)
-          (let ((collection-name (file-name-nondirectory collection-path)))
-            (meta-install-collection collection-name collection-path)))))
-     ((stringp collection)
-      (meta-install-collection collection package-path))
-     (t
-      (error "Invalid collection: %s" collection)))))
+Key: package name (string).
+Value: absolute path of the package directory.")
 
 (defvar meta-installed-collections (make-hash-table :test 'equal)
   "Registry of collection roots.
-Key: Collection name (string).
-Value: List of absolute paths (shadowing supported).")
+Key: collection name (string).
+Value: list of absolute paths; earlier entries shadow later ones.")
+
+(defvar meta-instantiated-modules (make-hash-table :test 'equal)
+  "Modules that have been loaded successfully.
+Key: absolute file path.
+Value: feature symbol.
+A file is only recorded here after it has finished loading without
+error, so a module that failed can be imported again after it is fixed.")
+
+(defvar meta--loading nil
+  "Stack of module files currently being instantiated, innermost first.
+Used to report cyclic imports instead of silently ignoring them.")
+
+;;;; Metadata
+
+(defun meta--read-metadata (package-name package-path)
+  "Read the metadata plist of PACKAGE-NAME from PACKAGE-PATH/metadata.el.
+The file holds a single plist and is read, not evaluated.  The legacy
+form (definfo SYMBOL VALUE [DOC]) is still accepted."
+  (let ((file (expand-file-name "metadata.el" package-path)))
+    (unless (file-readable-p file)
+      (error "Package `%s' has no metadata.el" package-name))
+    (let ((form (with-temp-buffer
+                  (insert-file-contents file)
+                  (read (current-buffer)))))
+      (pcase form
+        (`(definfo ,_ ,value . ,_) (eval value t))
+        ((and (pred plistp) (guard (keywordp (car-safe form)))) form)
+        (_ (error "Package `%s': metadata.el must contain a plist" package-name))))))
+
+;;;; Installation
+
+(defun meta--subdirectories (path)
+  "Return the non-hidden subdirectories of PATH as absolute paths."
+  (seq-filter #'file-directory-p (directory-files path t "\\`[^.]")))
+
+(defun meta-install-scope (scope-name scope-path)
+  "Install the scope SCOPE-NAME rooted at SCOPE-PATH.
+This runs in two passes so that packages may depend on each other
+regardless of directory order:
+1. Discovery: record every package in `meta-installed-packages'.
+2. Installation: read each package's metadata and register its
+   collections via `meta-install-package'."
+  (let* ((scope-path (expand-file-name scope-path))
+         (package-path* (meta--subdirectories scope-path)))
+    (puthash scope-name scope-path meta-installed-scopes)
+    (dolist (package-path package-path*)
+      (puthash (file-name-nondirectory package-path) package-path
+               meta-installed-packages))
+    (dolist (package-path package-path*)
+      (meta-install-package (file-name-nondirectory package-path) package-path))))
+
+(defun meta-install-package (package-name package-path)
+  "Read the metadata of PACKAGE-NAME at PACKAGE-PATH and register its collections.
+Every dependency listed under :deps must already be a known package."
+  (let* ((info (meta--read-metadata package-name package-path))
+         (collection (plist-get info :collection)))
+    (dolist (dep (plist-get info :deps))
+      (unless (gethash dep meta-installed-packages)
+        (error "Package `%s' requires missing dependency: `%s'" package-name dep)))
+    (cond
+     ((or (null collection) (eq collection 'use-pkg-name))
+      (meta-install-collection package-name package-path))
+     ((or (equal collection "") (eq collection 'multi))
+      (dolist (collection-path (meta--subdirectories package-path))
+        (meta-install-collection (file-name-nondirectory collection-path)
+                                 collection-path)))
+     ((stringp collection)
+      (meta-install-collection collection package-path))
+     (t
+      (error "Package `%s': invalid collection %S" package-name collection)))))
+
 (defun meta-install-collection (collection-name collection-path)
-  "Register a root path for a collection."
-  (let ((collection-path* (gethash collection-name meta-installed-collections)))
-    (puthash collection-name (cons collection-path collection-path*) meta-installed-collections)
-    (add-to-list 'load-path collection-path)))
+  "Register COLLECTION-PATH as a root of COLLECTION-NAME.
+Roots registered later shadow earlier ones."
+  (push collection-path (gethash collection-name meta-installed-collections)))
 
-(defvar meta-installed-modules (make-hash-table :test 'equal)
-  "Registry of instantiated modules to prevent re-instantiation.
-Key: Absolute file path.
-Value: Module name (string).")
-(defun meta-install-module (feature file-path)
-  "Instantiate a module (require feature) if not already installed."
-  (unless (gethash file-path meta-installed-modules)
-    (puthash file-path feature meta-installed-modules)
-    (require feature file-path)))
-
-(defvar meta--cache:info nil
-  "Temporary storage for the most recently loaded package metadata.
-This variable is updated by the `definfo' macro and consumed by
-`meta-install-package'. It acts as a bridge between the loaded file
-and the package manager.")
-(defmacro definfo (symbol value &optional docstring)
-  "Define a package metadata variable and register it for installation."
-  `(progn (defvar ,symbol ,value ,docstring)
-          (setq meta--cache:info ,symbol)))
+;;;; Library specs
 
 (defun meta-library-spec->file-path (library-spec)
-  "Resolve a library spec (e.g. '(meta main)) to an absolute path."
+  "Resolve LIBRARY-SPEC (e.g. (meta) or (private layers default)) to a file.
+The spec (C X ... Y) resolves to X/.../Y.el under a root of collection C,
+falling back to X/.../Y/main.el."
   (let* ((collection-name (symbol-name (car library-spec)))
-         (collection-path* (gethash collection-name meta-installed-collections)))
-    (unless collection-path*
-      (error "Collection not registered: %s" collection-name))
-    (let* ((rel-path (cdr library-spec))
-           (module-path (if rel-path (apply #'file-name-concat (mapcar #'symbol-name rel-path)) ""))
-           (file-path (locate-file module-path collection-path* load-suffixes)))
-      (or file-path
-          (let* ((module-path (file-name-concat module-path "main"))
-                 (file-path (locate-file module-path collection-path* load-suffixes)))
-            (unless file-path
-              (error "Library not found: %s" library-spec))
-            file-path)))))
+         (roots (or (gethash collection-name meta-installed-collections)
+                    (error "Collection not registered: %s" collection-name)))
+         (module-path (mapconcat #'symbol-name (cdr library-spec) "/")))
+    (or (and (cdr library-spec)
+             (locate-file module-path roots load-suffixes))
+        (locate-file (if (cdr library-spec)
+                         (file-name-concat module-path "main")
+                       "main")
+                     roots load-suffixes)
+        (error "Library not found: %S" library-spec))))
+
 (defun meta-library-spec->feature (library-spec)
-  "Transform a library spec (e.g. '(library meta)) to a feature (e.g. 'library/meta)."
+  "Return the feature for LIBRARY-SPEC, e.g. (private layers) => private/layers."
   (intern (mapconcat #'symbol-name library-spec "/")))
 
+;;;; Import / export
+
 (defun meta-dynamic-import (library-spec)
-  "Resolve and install the module specified by LIBRARY-SPEC."
-  (let ((file-path (meta-library-spec->file-path library-spec))
-        (feature (meta-library-spec->feature library-spec)))
-    (meta-install-module feature file-path)))
+  "Load the module named by LIBRARY-SPEC unless it is already loaded.
+Signal an error on cyclic imports.  The module's feature is provided
+only after the file has loaded successfully."
+  (let ((feature (meta-library-spec->feature library-spec)))
+    (unless (featurep feature)
+      (let ((file (meta-library-spec->file-path library-spec)))
+        (unless (gethash file meta-instantiated-modules)
+          (when (member file meta--loading)
+            (error "Cycle in loading: %s"
+                   (mapconcat #'abbreviate-file-name
+                              (reverse (cons file meta--loading)) " -> ")))
+          (let ((meta--loading (cons file meta--loading)))
+            (load file nil t t))
+          (puthash file feature meta-instantiated-modules))
+        (provide feature)))
+    feature))
+
 (defmacro meta-import (&rest library-spec*)
   "Import modules.
-Example: (meta-import (meta) (private))"
+Example: (meta-import (meta) (private layers default))"
   `(progn
-     ,@(mapcar (lambda (library-spec)
-                 `(meta-dynamic-import ',library-spec))
+     ,@(mapcar (lambda (library-spec) `(meta-dynamic-import ',library-spec))
                library-spec*)))
 
 (defun meta-dynamic-auto-import (function library-spec &optional docstring interactive type)
-  "Register native autoloads for FUNCTIONS in LIBRARY-SPEC."
-  (let ((file-path (meta-library-spec->file-path library-spec))
-        (feature (meta-library-spec->feature library-spec)))
-    (autoload function file-path docstring interactive type)))
+  "Autoload FUNCTION from the module named by LIBRARY-SPEC."
+  (autoload function (meta-library-spec->file-path library-spec)
+    docstring interactive type))
 
-(defvar meta--pending-provides (make-hash-table :test 'equal)
-  "Registry of features provided by files currently being loaded.
-Key: Absolute file path (string).
-Value: Feature symbol.")
 (defun meta-dynamic-export (library-spec)
-  "Export the current file as LIBRARY-SPEC."
-  (let ((feature (meta-library-spec->feature library-spec)))
-    (provide feature)
-    (when load-file-name
-      (puthash load-file-name feature meta--pending-provides))))
+  "Provide the feature of LIBRARY-SPEC.
+Optional: `meta-import' already provides the feature once the file has
+loaded, so modules only need this when they are loaded by other means."
+  (provide (meta-library-spec->feature library-spec)))
+
 (defmacro meta-export (library-spec)
-  "Declare the current file's module identity."
+  "Declare the current file's module identity.  See `meta-dynamic-export'."
   `(meta-dynamic-export ',library-spec))
 
-(defun meta--on-file-load (file-path)
-  "Hook: Run after file load. Check if it opted-in via meta-provide."
-  (let ((feature (gethash file-path meta--pending-provides)))
-    (when feature
-      (puthash file-path feature meta-installed-modules)
-      (remhash file-path meta--pending-provides))))
-(add-hook 'after-load-functions #'meta--on-file-load)
-
+;; `meta' itself is loaded with a plain `load', so record it by hand.
+(when load-file-name
+  (puthash load-file-name 'meta meta-instantiated-modules))
 (meta-export (meta))
+
+;;; main.el ends here

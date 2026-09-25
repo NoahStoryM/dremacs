@@ -1,7 +1,5 @@
-;;; info.el --- Private package metadata -*- lexical-binding: t -*-
+;;; metadata.el --- Private package metadata  -*- mode: lisp-data -*-
 
-(definfo private-pkg-info
-  (list :collection "private"
-        :pkg-desc "User private package"
-        :deps '("meta"))
-  "Metadata for the `private' collection system.")
+(:collection "private"
+ :pkg-desc "User private package"
+ :deps ("meta"))
