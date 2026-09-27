@@ -37,13 +37,13 @@ The legacy form ~(definfo NAME (list ...) DOC)~ is still accepted.
 ** Library Specs
 Modules are referenced via S-expressions, not strings.
 
-|------------------+----------------------+---------------|
-| Racket/Meta Spec | Resolves to File     | Elisp Feature |
-|------------------+----------------------+---------------|
-| =(meta)=         | =.../meta/main.el=   | =meta=        |
-| =(util string)=  | =.../util/string.el= | =util/string= |
-| =(util str)=     | =.../util/str/main.el= (if =str.el= is absent) | =util/str= |
-|------------------+----------------------+---------------|
+|------------------+------------------------------------------------+---------------|
+| Racket/Meta Spec | Resolves to File                               | Elisp Feature |
+|------------------+------------------------------------------------+---------------|
+| =(meta)=         | =.../meta/main.el=                             | =meta=        |
+| =(util string)=  | =.../util/string.el=                           | =util/string= |
+| =(util str)=     | =.../util/str/main.el= (if =str.el= is absent) | =util/str=    |
+|------------------+------------------------------------------------+---------------|
 
 * API Reference
 ** ~(meta-import library-spec ...)~
