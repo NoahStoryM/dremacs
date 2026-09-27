@@ -8,6 +8,7 @@
 - [[#directory-structure][Directory Structure]]
 - [[#bootstrap-process][Bootstrap Process]]
 - [[#usage][Usage]]
+- [[#testing][Testing]]
 - [[#license][License]]
 
 * Introduction
@@ -85,6 +86,14 @@ The first launch will initialize your private configuration in =~/.dremacs.d=
 
 The user configuration may freely change ~user-emacs-directory~ in its
 =early-init.el=: the system root is captured before that file runs.
+
+* Testing
+The Meta loader has an ERT suite covering path resolution, load-once and retry
+semantics, cycle detection, feature namespacing and autoload stubs:
+
+#+BEGIN_SRC sh
+make test
+#+END_SRC
 
 * License
 :PROPERTIES:
