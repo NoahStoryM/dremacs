@@ -7,8 +7,17 @@
 ;; `(private layers default)', which resolves to a file under one of the
 ;; roots registered for the `private' collection.
 ;;
-;; Unlike `require', resolution never consults `load-path': every root is
-;; tracked explicitly in `meta-installed-collections'.
+;; Meta organizes where modules live and how they are loaded.  It does
+;; not isolate identifiers: definitions in different modules still share
+;; Emacs' global namespace, so modules should keep using name prefixes.
+;;
+;; Invariants:
+;; - Resolution never consults `load-path'; every root is tracked in
+;;   `meta-installed-collections'.
+;; - `meta-modules' alone decides whether a module is loaded.  Features
+;;   are provided only as an after-the-fact signal for `eval-after-load',
+;;   and they live under a `meta:' prefix so they never collide with
+;;   ordinary Emacs features such as `dired'.
 
 ;;; Code:
 
@@ -29,35 +38,33 @@ Value: absolute path of the package directory.")
 (defvar meta-installed-collections (make-hash-table :test 'equal)
   "Registry of collection roots.
 Key: collection name (string).
-Value: list of absolute paths; earlier entries shadow later ones.")
+Value: list of absolute paths, highest priority first.")
 
-(defvar meta-instantiated-modules (make-hash-table :test 'equal)
-  "Modules that have been loaded successfully.
-Key: absolute file path.
-Value: feature symbol.
-A file is only recorded here after it has finished loading without
-error, so a module that failed can be imported again after it is fixed.")
+(defvar meta-modules (make-hash-table :test 'equal)
+  "Load state of modules.
+Key: module file name without its .el/.elc suffix.
+Value: `loading' while the file is being loaded, `loaded' once it has
+finished without error.  A module that signals an error is removed, so
+it can be imported again after it is fixed.")
 
 (defvar meta--loading nil
-  "Stack of module files currently being instantiated, innermost first.
-Used to report cyclic imports instead of silently ignoring them.")
+  "Stack of modules currently being loaded, innermost first.
+Only used to describe cycles in error messages.")
 
 ;;;; Metadata
 
 (defun meta--read-metadata (package-name package-path)
   "Read the metadata plist of PACKAGE-NAME from PACKAGE-PATH/metadata.el.
-The file holds a single plist and is read, not evaluated.  The legacy
-form (definfo SYMBOL VALUE [DOC]) is still accepted."
+The file holds a single plist and is read as data, never evaluated."
   (let ((file (expand-file-name "metadata.el" package-path)))
     (unless (file-readable-p file)
       (error "Package `%s' has no metadata.el" package-name))
-    (let ((form (with-temp-buffer
+    (let ((info (with-temp-buffer
                   (insert-file-contents file)
                   (read (current-buffer)))))
-      (pcase form
-        (`(definfo ,_ ,value . ,_) (eval value t))
-        ((and (pred plistp) (guard (keywordp (car-safe form)))) form)
-        (_ (error "Package `%s': metadata.el must contain a plist" package-name))))))
+      (unless (and (plistp info) (keywordp (car-safe info)))
+        (error "Package `%s': metadata.el must contain a plist" package-name))
+      info)))
 
 ;;;; Installation
 
@@ -71,7 +78,8 @@ This runs in two passes so that packages may depend on each other
 regardless of directory order:
 1. Discovery: record every package in `meta-installed-packages'.
 2. Installation: read each package's metadata and register its
-   collections via `meta-install-package'."
+   collections via `meta-install-package'.
+Installing the same scope again is harmless."
   (let* ((scope-path (expand-file-name scope-path))
          (package-path* (meta--subdirectories scope-path)))
     (puthash scope-name scope-path meta-installed-scopes)
@@ -103,49 +111,76 @@ Every dependency listed under :deps must already be a known package."
 
 (defun meta-install-collection (collection-name collection-path)
   "Register COLLECTION-PATH as a root of COLLECTION-NAME.
-Roots registered later shadow earlier ones."
-  (push collection-path (gethash collection-name meta-installed-collections)))
+Roots registered later shadow earlier ones.  Registering a root that is
+already known leaves its priority unchanged."
+  (let ((path (directory-file-name (expand-file-name collection-path)))
+        (roots (gethash collection-name meta-installed-collections)))
+    (unless (member path roots)
+      (puthash collection-name (cons path roots) meta-installed-collections))))
 
 ;;;; Library specs
 
 (defun meta-library-spec->file-path (library-spec)
   "Resolve LIBRARY-SPEC (e.g. (meta) or (private layers default)) to a file.
-The spec (C X ... Y) resolves to X/.../Y.el under a root of collection C,
-falling back to X/.../Y/main.el."
+The spec (C X ... Y) names X/.../Y.el or, failing that, X/.../Y/main.el;
+the spec (C) names main.el.  Roots of collection C are searched in
+priority order, and both forms are tried in each root before moving to
+the next, so a higher-priority root always wins."
   (let* ((collection-name (symbol-name (car library-spec)))
          (roots (or (gethash collection-name meta-installed-collections)
                     (error "Collection not registered: %s" collection-name)))
-         (module-path (mapconcat #'symbol-name (cdr library-spec) "/")))
-    (or (and (cdr library-spec)
-             (locate-file module-path roots load-suffixes))
-        (locate-file (if (cdr library-spec)
-                         (file-name-concat module-path "main")
-                       "main")
-                     roots load-suffixes)
+         (module-path (mapconcat #'symbol-name (cdr library-spec) "/"))
+         (candidates (if (cdr library-spec)
+                         (list module-path (file-name-concat module-path "main"))
+                       (list "main"))))
+    (or (seq-some (lambda (root)
+                    (seq-some (lambda (candidate)
+                                (locate-file candidate (list root) load-suffixes))
+                              candidates))
+                  roots)
         (error "Library not found: %S" library-spec))))
 
 (defun meta-library-spec->feature (library-spec)
-  "Return the feature for LIBRARY-SPEC, e.g. (private layers) => private/layers."
-  (intern (mapconcat #'symbol-name library-spec "/")))
+  "Return the feature Meta provides for LIBRARY-SPEC.
+For example (private layers) => `meta:private/layers'.  A trailing
+`main' is dropped, so (C main) and (C) name the same feature."
+  (let ((spec (if (and (cdr library-spec) (eq (car (last library-spec)) 'main))
+                  (butlast library-spec)
+                library-spec)))
+    (intern (concat "meta:" (mapconcat #'symbol-name spec "/")))))
 
-;;;; Import / export
+(defun meta--module-key (file)
+  "Return the key of FILE in `meta-modules': FILE without .el/.elc."
+  (replace-regexp-in-string "\\.elc?\\'" "" file))
+
+;;;; Import
+
+(defun meta--describe-cycle (key)
+  "Describe the import cycle that reaches KEY again."
+  (mapconcat #'abbreviate-file-name
+             (append (member key (reverse meta--loading)) (list key))
+             " -> "))
 
 (defun meta-dynamic-import (library-spec)
   "Load the module named by LIBRARY-SPEC unless it is already loaded.
-Signal an error on cyclic imports.  The module's feature is provided
-only after the file has loaded successfully."
-  (let ((feature (meta-library-spec->feature library-spec)))
-    (unless (featurep feature)
-      (let ((file (meta-library-spec->file-path library-spec)))
-        (unless (gethash file meta-instantiated-modules)
-          (when (member file meta--loading)
-            (error "Cycle in loading: %s"
-                   (mapconcat #'abbreviate-file-name
-                              (reverse (cons file meta--loading)) " -> ")))
-          (let ((meta--loading (cons file meta--loading)))
-            (load file nil t t))
-          (puthash file feature meta-instantiated-modules))
-        (provide feature)))
+Return the module's feature.  Signal an error on cyclic imports."
+  (let* ((file (meta-library-spec->file-path library-spec))
+         (key (meta--module-key file))
+         (feature (meta-library-spec->feature library-spec)))
+    (pcase (gethash key meta-modules)
+      ('loaded nil)
+      ('loading (error "Cycle in loading: %s" (meta--describe-cycle key)))
+      (_
+       (puthash key 'loading meta-modules)
+       (let ((done nil))
+         (unwind-protect
+             (let ((meta--loading (cons key meta--loading)))
+               (load key nil t nil t)
+               (setq done t))
+           (if done
+               (puthash key 'loaded meta-modules)
+             (remhash key meta-modules))))))
+    (provide feature)
     feature))
 
 (defmacro meta-import (&rest library-spec*)
@@ -155,24 +190,38 @@ Example: (meta-import (meta) (private layers default))"
      ,@(mapcar (lambda (library-spec) `(meta-dynamic-import ',library-spec))
                library-spec*)))
 
-(defun meta-dynamic-auto-import (function library-spec &optional docstring interactive type)
-  "Autoload FUNCTION from the module named by LIBRARY-SPEC."
-  (autoload function (meta-library-spec->file-path library-spec)
-    docstring interactive type))
+;;;; Autoload
 
-(defun meta-dynamic-export (library-spec)
-  "Provide the feature of LIBRARY-SPEC.
-Optional: `meta-import' already provides the feature once the file has
-loaded, so modules only need this when they are loaded by other means."
-  (provide (meta-library-spec->feature library-spec)))
+(defconst meta--interactive-call (make-symbol "meta-interactive-call")
+  "Marker argument passed by the interactive spec of autoload stubs.")
 
-(defmacro meta-export (library-spec)
-  "Declare the current file's module identity.  See `meta-dynamic-export'."
-  `(meta-dynamic-export ',library-spec))
+(defun meta-dynamic-auto-import (function library-spec &optional docstring interactive)
+  "Define FUNCTION as a stub that imports LIBRARY-SPEC on its first call.
+Like `autoload', but the module is loaded through `meta-dynamic-import',
+so importing the same module later does not load it a second time.
+If INTERACTIVE is non-nil the stub is a command.  Does nothing when
+FUNCTION is already defined."
+  (meta-library-spec->file-path library-spec) ; report bad specs early
+  (unless (fboundp function)
+    (let* ((stub nil)
+           (run (lambda (args)
+                  (meta-dynamic-import library-spec)
+                  (when (eq (symbol-function function) stub)
+                    (error "Module %S did not define `%s'" library-spec function))
+                  (if (and args (eq (car args) meta--interactive-call))
+                      (call-interactively function)
+                    (apply function args)))))
+      (setq stub (if interactive
+                     (lambda (&rest args)
+                       (interactive (list meta--interactive-call))
+                       (funcall run args))
+                   (lambda (&rest args) (funcall run args))))
+      (defalias function stub docstring))))
 
-;; `meta' itself is loaded with a plain `load', so record it by hand.
+;; This file is loaded with a plain `load' by the system init.el.
 (when load-file-name
-  (puthash load-file-name 'meta meta-instantiated-modules))
-(meta-export (meta))
+  (puthash (meta--module-key load-file-name) 'loaded meta-modules))
+(provide 'meta:meta)
+(provide 'meta)
 
 ;;; main.el ends here

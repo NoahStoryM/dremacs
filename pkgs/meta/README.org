@@ -9,7 +9,7 @@
   - [[#library-specs][Library Specs]]
 - [[#api-reference][API Reference]]
   - [[#meta-import-library-spec-][~(meta-import library-spec ...)~]]
-  - [[#meta-export-library-spec][~(meta-export library-spec)~]]
+  - [[#meta-dynamic-auto-import-function-library-spec-docstring-interactive][~(meta-dynamic-auto-import function library-spec &optional docstring interactive)~]]
   - [[#meta-install-scope-name-path][~(meta-install-scope name path)~]]
 
 * Introduction
@@ -32,35 +32,50 @@ Recognized keys:
   package directory name; =""= or ~multi~ makes every subdirectory a collection.
 - =:deps= :: names of packages that must be installed.
 
-The legacy form ~(definfo NAME (list ...) DOC)~ is still accepted.
-
 ** Library Specs
 Modules are referenced via S-expressions, not strings.
 
-|------------------+------------------------------------------------+---------------|
-| Racket/Meta Spec | Resolves to File                               | Elisp Feature |
-|------------------+------------------------------------------------+---------------|
-| =(meta)=         | =.../meta/main.el=                             | =meta=        |
-| =(util string)=  | =.../util/string.el=                           | =util/string= |
-| =(util str)=     | =.../util/str/main.el= (if =str.el= is absent) | =util/str=    |
-|------------------+------------------------------------------------+---------------|
+|------------------+------------------------------------------------+--------------------|
+| Racket/Meta Spec | Resolves to File                               | Provided Feature   |
+|------------------+------------------------------------------------+--------------------|
+| =(meta)=         | =.../meta/main.el=                             | =meta:meta=        |
+| =(util string)=  | =.../util/string.el=                           | =meta:util/string= |
+| =(util str)=     | =.../util/str/main.el= (if =str.el= is absent) | =meta:util/str=    |
+|------------------+------------------------------------------------+--------------------|
+
+When a collection has several roots, they are searched in priority order (the
+root registered last first), and both file forms are tried in each root before
+the next one, so a higher-priority root always wins.
+
+Features carry a =meta:= prefix so that a module never masquerades as an
+ordinary Emacs feature: importing a collection named =dired= provides
+=meta:dired=, not =dired=. Whether a module is loaded is decided by Meta's own
+state table, never by ~featurep~; the feature is only a signal for
+~with-eval-after-load~.
 
 * API Reference
 ** ~(meta-import library-spec ...)~
-Import one or more modules. Each file is loaded at most once; its feature is
-provided only after it loads without error, so a module that failed can be
-imported again once fixed. Cyclic imports signal an error that shows the cycle.
+Import one or more modules. Each file is loaded at most once; it counts as
+loaded, and its feature is provided, only after it loads without error, so a
+module that failed can be imported again once fixed. Cyclic imports signal an
+error that shows the cycle. Modules need no ~provide~ or export declaration.
 
 #+BEGIN_SRC emacs-lisp
 (meta-import (meta) (private config))
 #+END_SRC
 
-** ~(meta-export library-spec)~
-Optional. ~meta-import~ already provides the module's feature, so this is only
-needed for files that are loaded by other means (e.g. =meta/main.el= itself).
+** ~(meta-dynamic-auto-import function library-spec &optional docstring interactive)~
+Like ~autoload~, but the first call loads the module through ~meta-import~, so
+importing the same module later does not load it again. With INTERACTIVE the
+stub is a command and forwards the prefix argument.
+
+#+BEGIN_SRC emacs-lisp
+(meta-dynamic-auto-import 'my-tool-run '(my-tools run) "Run my tool." t)
+#+END_SRC
 
 ** ~(meta-install-scope name path)~
-Registers a directory containing packages. The discovery process is:
+Registers a directory containing packages. Installing the same scope again is
+harmless. The discovery process is:
 1. Scan the directory for packages.
 2. Read each =metadata.el= and check its dependencies.
 3. Register the package's collection roots.

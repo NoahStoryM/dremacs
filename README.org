@@ -18,8 +18,8 @@ called *Meta*, designed to bring the explicitness of Racket's collection system
 to Emacs Lisp.
 
 * Philosophy
-Standard Emacs configuration often suffers from a flat namespace and implicit
-dependencies (the global ~load-path~ hell). This framework introduces:
+Standard Emacs configuration often suffers from implicit dependencies and an
+unstructured ~load-path~. This framework introduces:
 
 - **Scopes**: Clearly separated installation roots (e.g., ~system~ vs ~user~).
 - **Collections**: Logical grouping of modules (similar to Racket collections).
@@ -30,6 +30,10 @@ dependencies (the global ~load-path~ hell). This framework introduces:
   no ~provide~ is needed; cyclic imports are reported as errors.
 - **No load-path**: Collection roots are tracked by Meta itself and never added
   to ~load-path~.
+
+Meta organizes where modules live and how they load; it is not a language-level
+module system. Definitions still share Emacs' global namespace, so modules
+should keep using name prefixes.
 
 * Directory Structure
 #+begin_src text
