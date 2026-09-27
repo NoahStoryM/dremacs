@@ -180,7 +180,11 @@ Return the module's feature.  Signal an error on cyclic imports."
            (if done
                (puthash key 'loaded meta-modules)
              (remhash key meta-modules))))))
-    (provide feature)
+    ;; Provide only once: every `provide' reruns the `eval-after-load'
+    ;; callbacks of the feature.  This is a notification only; whether
+    ;; the module is loaded is still decided by `meta-modules'.
+    (unless (featurep feature)
+      (provide feature))
     feature))
 
 (defmacro meta-import (&rest library-spec*)
@@ -199,24 +203,33 @@ Example: (meta-import (meta) (private layers default))"
   "Define FUNCTION as a stub that imports LIBRARY-SPEC on its first call.
 Like `autoload', but the module is loaded through `meta-dynamic-import',
 so importing the same module later does not load it a second time.
-If INTERACTIVE is non-nil the stub is a command.  Does nothing when
-FUNCTION is already defined."
+If loading fails, the stub is put back, so the next call retries even if
+the module defined FUNCTION before failing.  DOCSTRING belongs to the
+stub and is replaced along with it.  If INTERACTIVE is non-nil the stub
+is a command.  Does nothing when FUNCTION is already defined."
   (meta-library-spec->file-path library-spec) ; report bad specs early
   (unless (fboundp function)
     (let* ((stub nil)
            (run (lambda (args)
-                  (meta-dynamic-import library-spec)
+                  (condition-case err
+                      (meta-dynamic-import library-spec)
+                    (t (fset function stub)
+                       (signal (car err) (cdr err))))
                   (when (eq (symbol-function function) stub)
                     (error "Module %S did not define `%s'" library-spec function))
                   (if (and args (eq (car args) meta--interactive-call))
                       (call-interactively function)
                     (apply function args)))))
-      (setq stub (if interactive
-                     (lambda (&rest args)
-                       (interactive (list meta--interactive-call))
-                       (funcall run args))
-                   (lambda (&rest args) (funcall run args))))
-      (defalias function stub docstring))))
+      ;; Build the stub with `eval' so DOCSTRING lives in the function
+      ;; object itself; a `function-documentation' property (what
+      ;; `defalias' would set) would outlive the stub and shadow the real
+      ;; docstring.
+      (setq stub (eval `(lambda (&rest args)
+                          ,@(and docstring (list docstring))
+                          ,@(and interactive '((interactive (list meta--interactive-call))))
+                          (funcall ',run args))
+                       t))
+      (defalias function stub))))
 
 ;; This file is loaded with a plain `load' by the system init.el.
 (when load-file-name
